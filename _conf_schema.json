@@ -1,0 +1,56 @@
+{
+  "enable": {
+    "description": "插件总开关",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后所有表情命令都不响应"
+  },
+  "api_url": {
+    "description": "meme-generator 后端地址",
+    "type": "string",
+    "default": "https://meme.xlinxc.cn",
+    "hint": "填 GsCore 侧 MemeApiUrl 的同一个地址即可共用后端"
+  },
+  "request_timeout": {
+    "description": "后端请求超时（秒）",
+    "type": "int",
+    "default": 60,
+    "hint": "生成表情可能较慢，建议不小于 30"
+  },
+  "trigger_prefix": {
+    "description": "生成表情的触发前缀",
+    "type": "string",
+    "default": "",
+    "hint": "留空 = 关键词直接触发（像 GsCore 原版一样，任何消息都会尝试匹配）；填了则必须带前缀，例如填 # 就要发 #摸头"
+  },
+  "cooldown_seconds": {
+    "description": "同会话生成冷却（秒）",
+    "type": "int",
+    "default": 5,
+    "hint": "防止刷屏；0 = 不限制"
+  },
+  "auto_refresh_index": {
+    "description": "启动时自动刷新表情索引",
+    "type": "bool",
+    "default": true,
+    "hint": "首次启动必须拉一次索引；之后可关掉以加快启动（用 /更新表情 手动刷新）"
+  },
+  "index_cache_hours": {
+    "description": "表情索引缓存有效期（小时）",
+    "type": "int",
+    "default": 24,
+    "hint": "超过这个时间后，下次启动会重新拉取索引"
+  },
+  "max_image_size_mb": {
+    "description": "素材图片大小上限（MB）",
+    "type": "int",
+    "default": 5,
+    "hint": "超过上限的图片会被拒绝，避免拖慢生成"
+  },
+  "enable_stats": {
+    "description": "记录调用统计",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后 /表情统计 没有数据"
+  }
+}

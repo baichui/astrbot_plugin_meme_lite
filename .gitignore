@@ -1,0 +1,16 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ── 运行时/测试残留（AstrBot 组件在插件目录下写出的默认模板与临时文件）──
+data/
+*.log
+
+# ── 编辑器 / 系统 ──
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

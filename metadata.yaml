@@ -1,0 +1,34 @@
+name: astrbot_plugin_meme_lite
+display_name: 表情包制作（轻量版）
+desc: 直连 meme-generator 后端（复用 GsCore 侧同一个服务）。支持关键词出图、随机表情、搜索/详情/列表、个人与全局禁用、黑名单屏蔽、调用统计、分群开关。｜后端能力来自 MemeCrafters/meme-generator（MIT）；功能设计与命令体系参考 Loping151/core_plugin_memes（GPL-3.0-or-later）
+help: 输入 /表情帮助 查看用法
+version: v1.0.0
+author: AwA
+repo: ""
+astrbot_version: ">=4.13.0"
+support_platforms:
+  - aiocqhttp
+
+# ───────────────────────── 来源与致谢 ─────────────────────────
+# 本插件为「独立实现」：自行编写代码、直接对接 HTTP 接口，未复制下列项目源码。
+#
+#   · 后端能力来源
+#       MemeCrafters/meme-generator       Python 版，MIT
+#       MemeCrafters/meme-generator-rs    Rust 版，MIT
+#   · 功能设计与命令体系参考
+#       Loping151/core_plugin_memes       作者 Loping151 <wangkailing151@gmail.com>
+#                                         许可 GPL-3.0-or-later
+#   · 戳一戳联动接入方式参考
+#       Zhalslar/astrbot_plugin_pokepro   作者 Zhalslar
+#
+# 详见 README.md 的「来源与致谢」章节。
+# （以下 upstream / credits 为声明性字段，AstrBot 会忽略，仅作来源留档）
+upstream:
+  backend: https://github.com/MemeCrafters/meme-generator
+  backend_rs: https://github.com/MemeCrafters/meme-generator-rs
+  design_reference: https://github.com/Loping151/core_plugin_memes
+credits:
+  - "MemeCrafters/meme-generator (MIT) — 表情包生成后端，全部出图能力来源"
+  - "MemeCrafters/meme-generator-rs (MIT) — 同上（Rust 版后端）"
+  - "Loping151/core_plugin_memes (GPL-3.0-or-later) — 功能设计、命令体系与素材解析口径的参考来源"
+  - "Zhalslar/astrbot_plugin_pokepro — 戳一戳联动的接入方式"

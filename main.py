@@ -264,19 +264,23 @@ class MemeLitePlugin(Star):
                 return
 
         prefix = str(self._cfg("trigger_prefix", "") or "")
+        has_prefix = False
         if prefix:
             if not raw.startswith(prefix):
                 return
             raw = raw[len(prefix) :].strip()
             if not raw:
                 return
+            has_prefix = True
 
         if not self.client.is_ready:
             return
-        if self._cooldown_hit(channel) and not prefix:
+        if self._cooldown_hit(channel) and not has_prefix:
             return
 
-        info = self._match_keyword(raw)
+        # 无前缀时要求关键词 ≥2 字：单字（搓 / 哈 / 摸 / 亲…）太容易撞上正常聊天，
+        # 如「搓破过好几次了」会命中 twist。带前缀属于主动调用，单字也放行。
+        info = self._match_keyword(raw, min_kw_len=1 if has_prefix else 2)
         if info is None:
             return
         reason = self._can_use(channel, info.key)
@@ -287,7 +291,8 @@ class MemeLitePlugin(Star):
         rest = raw[len(info.matched_keyword(raw) or "") :].strip()
         path, note = await self._generate(event, info, rest)
         if not path:
-            if note:
+            # 自动触发不满足条件时静默，避免往群里回「需要图片 X 张…」这类提示
+            if has_prefix and note:
                 yield event.plain_result(note)
             return
         event.stop_event()
@@ -295,13 +300,18 @@ class MemeLitePlugin(Star):
             yield event.plain_result(note)
         yield event.image_result(path)
 
-    def _match_keyword(self, text: str) -> Optional[MemeInfo]:
-        """在本地索引里找以 text 开头命中的最长关键词。"""
+    def _match_keyword(self, text: str, min_kw_len: int = 1) -> Optional[MemeInfo]:
+        """在本地索引里找以 text 开头命中的最长关键词。
+
+        Args:
+            min_kw_len: 关键词最短长度。无前缀的自动触发建议传 ``2``，
+                避免「搓」「哈」这类单字词撞上正常聊天。
+        """
         best: Optional[MemeInfo] = None
         best_len = 0
         for info in self.client.all_infos():
             kw = info.matched_keyword(text)
-            if kw and len(kw) > best_len:
+            if kw and len(kw) >= min_kw_len and len(kw) > best_len:
                 best, best_len = info, len(kw)
         return best
 

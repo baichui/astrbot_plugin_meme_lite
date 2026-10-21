@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -48,8 +49,14 @@ _RESERVED = (
     "开启表情包", "关闭表情包",
 )
 
+# AstrBot 会把非首位的 @ 段拼成 " @昵称(QQ) " 塞进 message_str。
+# 头像已由 At 段单独取过，这段文本必须从台词里剔掉，否则：
+#   - 要求 0 段文字的表情会判定素材不符（直接失败）
+#   - 要求 1 段文字的表情会把 "@张三(123456)" 当成台词念出来
+_MENTION_RE = re.compile(r"@[^\s@()]*\(\d+\)")
 
-@register(PLUGIN_NAME, "AwA", "表情包制作（轻量版）", "1.0.0")
+
+@register(PLUGIN_NAME, "AwA", "表情包制作（轻量版）", "1.0.1")
 class MemeLitePlugin(Star):
     def __init__(self, context: Context, config) -> None:
         super().__init__(context)
@@ -124,6 +131,31 @@ class MemeLitePlugin(Star):
         return ids
 
     @staticmethod
+    def _strip_mentions(text: str, event: AstrMessageEvent) -> str:
+        """把 message_str 里残留的 @昵称(QQ) 从台词中剔除。
+
+        引用链：AstrBot 的 aiocqhttp 适配器在处理非首位的 @ 时，会把
+        ``@昵称(QQ号)`` 追加进 message_str（见 aiocqhttp_platform_adapter.py）。
+        而头像已经由 ``_at_ids`` 从 At 段单独取过，这里不清掉就会把 @ 当成台词。
+        """
+        if not text:
+            return ""
+        # 先按 At 段的真实昵称精确替换（段里没昵称时跳过，交给下面的正则兜底）
+        for seg in event.message_obj.message:
+            if not isinstance(seg, At):
+                continue
+            qq = str(seg.qq)
+            name = str(getattr(seg, "name", "") or "")
+            candidates = [f"@{qq}", f"@({qq})", f"[At:{qq}]"]
+            if name:
+                candidates.append(f"@{name}({qq})")
+            for tok in candidates:
+                text = text.replace(tok, " ")
+        # 兜底：段里昵称与文本里的写法不一致（含全角括号等）时按模式清
+        text = _MENTION_RE.sub(" ", text)
+        return " ".join(text.split())
+
+    @staticmethod
     def _image_urls(event: AstrMessageEvent) -> List[str]:
         urls: List[str] = []
         try:
@@ -196,6 +228,8 @@ class MemeLitePlugin(Star):
     ) -> Tuple[Optional[str], Optional[str]]:
         """返回 (图片路径, 提示文本)。"""
         channel = event.unified_msg_origin
+        # @ 的人由 At 段单独取头像，文本里的 "@昵称(QQ)" 不能当台词（见 _strip_mentions）
+        rest_text = self._strip_mentions(rest_text, event)
         sender_id = str(event.get_sender_id())
         sender_name = event.get_sender_name() or sender_id
 

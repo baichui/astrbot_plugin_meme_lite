@@ -56,7 +56,7 @@ _RESERVED = (
 _MENTION_RE = re.compile(r"@[^\s@()]*\(\d+\)")
 
 
-@register(PLUGIN_NAME, "AwA", "表情包制作（轻量版）", "1.0.1")
+@register(PLUGIN_NAME, "AwA", "表情包制作（轻量版）", "1.0.2")
 class MemeLitePlugin(Star):
     def __init__(self, context: Context, config) -> None:
         super().__init__(context)
@@ -246,10 +246,18 @@ class MemeLitePlugin(Star):
         if not info.accepts(len(parsed.images), len(parsed.texts)):
             need_img = info.image_requirement_text()
             need_txt = info.text_requirement_text()
-            return None, (
+            msg = (
                 f"「{info.key}」需要图片 {need_img} 张、文字 {need_txt} 段，"
                 f"当前收到 {len(parsed.images)} 张图 / {len(parsed.texts)} 段文字"
             )
+            # 多图表情（2 人及以上）常见于"揍/击剑/双喜"这类，给一句怎么补人的提示
+            if info.min_images >= 2 and len(parsed.images) < info.min_images:
+                kw = info.keywords[0] if info.keywords else info.key
+                msg += (
+                    f"\n💡 这个表情要 {info.min_images} 个人的头像："
+                    f"发「{kw} @某人 @某人」，或「{kw} 自己 @某人」（自己算第 1 个人）"
+                )
+            return None, msg
 
         user_infos = [
             {"name": name, "gender": "unknown"} for name in (parsed.at_names or [])

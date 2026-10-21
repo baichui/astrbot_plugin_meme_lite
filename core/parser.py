@@ -145,12 +145,15 @@ async def collect_materials(
         else:
             result.texts = [t for t in remaining.split("|") if t.strip()]
 
-    # 5) 兜底：需要图但一张都没有 → 用发送者头像
-    if info.min_images >= 1 and not result.images:
+    # 5) 补齐：需要多张图时，把发送者插到第 1 位当"主语"。
+    #    例：`揍 @张三` → [我, 张三] = 我揍他；`3p @a @b` → [我, a, b]。
+    #    实测 beat_up 的 image[0] 是施动方（站着打人的），image[1] 是被打方。
+    if info.min_images >= 1 and len(result.images) < info.min_images and not need_self:
         avatar = await fetch_qq_avatar(sender_id)
         if avatar:
-            result.images.append((sender_name or sender_id, compress_if_needed(avatar, max_image_mb)))
-            result.at_names.append(sender_name or sender_id)
+            name = sender_name or sender_id
+            result.images.insert(0, (name, compress_if_needed(avatar, max_image_mb)))
+            result.at_names.insert(0, name)
 
     # 6) 兜底：需要文字且后端有默认值
     if info.min_texts > 0 and len(result.texts) < info.min_texts:

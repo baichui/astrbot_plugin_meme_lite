@@ -7,24 +7,52 @@ from typing import Optional
 import httpx
 from astrbot.api import logger
 
-_AVATAR_URL = "https://q1.qlogo.cn/g?b=qq&nk={uid}&s=640"
+_AVATAR_URL = "https://q1.qlogo.cn/g?b=qq&nk={uid}&s={size}"
+# 先要 640；动图（GIF）头像在 640 档 qlogo 会退化成 40×40 的默认企鹅占位图，
+# 这时降到 140 —— 动图账号只在这个档位才返回真实的 100×100 小动图。
+_AVATAR_SIZES = (640, 140)
 
 _DEFAULT_TIMEOUT = 20.0
 
 
+def _is_placeholder(data: bytes, want: int) -> bool:
+    """判断 qlogo 返回的是不是"默认头像"占位图。
+
+    实测：动图头像请求 s=640 会拿到 40×40 JPEG（红围巾企鹅），s=140 才是
+    100×100 的真实动图。用「实际边长远小于请求边长」识别。
+    """
+    try:
+        import io
+
+        from PIL import Image
+
+        im = Image.open(io.BytesIO(data))
+        longest = max(im.size)
+        im.close()
+        return longest * 2 < want
+    except Exception:  # noqa: BLE001
+        return len(data) < 2048
+
+
 async def fetch_qq_avatar(uid: str) -> Optional[bytes]:
-    """取 QQ 头像字节。"""
+    """取 QQ 头像字节（自动跳过动图头像的 40×40 占位图）。"""
     uid = str(uid).strip()
     if not uid.isdigit():
         return None
+    fallback: Optional[bytes] = None
     try:
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT, follow_redirects=True) as client:
-            resp = await client.get(_AVATAR_URL.format(uid=uid))
-        if resp.status_code == 200 and resp.content:
-            return resp.content
+            for size in _AVATAR_SIZES:
+                resp = await client.get(_AVATAR_URL.format(uid=uid, size=size))
+                if resp.status_code != 200 or not resp.content:
+                    continue
+                if not _is_placeholder(resp.content, size):
+                    return resp.content
+                if fallback is None:
+                    fallback = resp.content
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[meme_lite] 取头像失败 uid={uid}: {e}")
-    return None
+    return fallback
 
 
 async def fetch_image(url: str) -> Optional[bytes]:

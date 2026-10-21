@@ -56,7 +56,7 @@ _RESERVED = (
 _MENTION_RE = re.compile(r"@[^\s@()]*\(\d+\)")
 
 
-@register(PLUGIN_NAME, "AwA", "表情包制作（轻量版）", "1.0.2")
+@register(PLUGIN_NAME, "AwA", "表情包制作（轻量版）", "1.0.3")
 class MemeLitePlugin(Star):
     def __init__(self, context: Context, config) -> None:
         super().__init__(context)

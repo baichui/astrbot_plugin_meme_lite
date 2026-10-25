@@ -56,7 +56,15 @@ async def fetch_qq_avatar(uid: str) -> Optional[bytes]:
 
 
 async def fetch_image(url: str) -> Optional[bytes]:
-    """下载图片（用于消息里的图片 / 引用消息图片）。"""
+    """取图片字节（用于消息里的图片 / 引用消息图片）。
+
+    素材有三种形态，都要认：
+    - ``http(s)://``            网络图
+    - ``base64://`` / ``data:`` 内联
+    - ``file://`` 或**裸本地路径** —— AstrBot 的引用解析器
+      （``extract_quoted_message_images``）在图片已缓存到本地时，返回的就是本地路径，
+      不认它就会报 ``Request URL is missing an 'http://' or 'https://' protocol``。
+    """
     url = (url or "").strip()
     if not url:
         return None
@@ -67,20 +75,44 @@ async def fetch_image(url: str) -> Optional[bytes]:
             return base64.b64decode(url[len("base64://") :])
         except Exception:  # noqa: BLE001
             return None
+    if url.startswith("data:"):
+        import base64
+
+        head, _, payload = url.partition(",")
+        if ";base64" not in head:
+            return None
+        try:
+            return base64.b64decode(payload)
+        except Exception:  # noqa: BLE001
+            return None
     if url.startswith("file://"):
         from pathlib import Path
 
         try:
             return Path(url[len("file://") :]).read_bytes()
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[meme_lite] 读取本地图片失败 {url[:80]}: {e}")
             return None
+    if not url.startswith(("http://", "https://")):
+        from pathlib import Path
+
+        path = Path(url)
+        if path.is_file():
+            try:
+                return path.read_bytes()
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[meme_lite] 读取本地图片失败 {url[:80]}: {e}")
+                return None
+        logger.warning(f"[meme_lite] 无法识别的图片来源（既不是链接也不是本地文件）：{url[:80]}")
+        return None
     try:
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(url)
         if resp.status_code == 200 and resp.content:
             return resp.content
+        logger.warning(f"[meme_lite] 下载图片失败 HTTP {resp.status_code}：{url[:80]}")
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"[meme_lite] 下载图片失败：{e}")
+        logger.warning(f"[meme_lite] 下载图片失败：{e} ({url[:80]})")
     return None
 
 

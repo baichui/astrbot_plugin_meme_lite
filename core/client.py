@@ -92,6 +92,11 @@ class MemeClient:
         return bool(self._keys) and bool(self._info)
 
     @property
+    def backend(self) -> str:
+        """当前后端标识（py / rs），未探测到时返回 ``?``。"""
+        return self._backend or "?"
+
+    @property
     def last_refresh(self) -> float:
         return self._last_refresh
 

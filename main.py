@@ -29,12 +29,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.message_components import At, Image
+from astrbot.api.message_components import At, Image, Reply
 from astrbot.api.star import Context, Star, StarTools, register
 
 from .core.client import MemeClient, MemeClientError
 from .core.models import MemeInfo
 from .core.parser import collect_materials
+from .core.render import render_command_help, render_meme_list
 from .core.store import MemeStore
 
 PLUGIN_NAME = "astrbot_plugin_meme_lite"
@@ -42,8 +43,9 @@ PLUGIN_NAME = "astrbot_plugin_meme_lite"
 # 这些前缀属于命令，catch-all 生成器要让路
 _RESERVED = (
     "表情列表", "表情帮助", "表情搜索", "表情查找", "表情详情", "表情信息",
-    "表情统计", "表情黑名单", "表情包状态", "表情包帮助",
-    "随机表情", "更新表情", "刷新表情",
+    "表情统计", "表情黑名单", "表情包状态", "表情包帮助", "表情help", "全部表情",
+    "表情参数", "表情排行", "搜表情", "禁用列表",
+    "随机表情", "更新表情", "刷新表情", "重载表情",
     "禁用表情", "启用表情", "全局禁用表情", "全局启用表情",
     "屏蔽表情", "解除屏蔽", "取消屏蔽",
     "开启表情包", "关闭表情包",
@@ -55,8 +57,182 @@ _RESERVED = (
 #   - 要求 1 段文字的表情会把 "@张三(123456)" 当成台词念出来
 _MENTION_RE = re.compile(r"@[^\s@()]*\(\d+\)")
 
+# `bq` 是插件自己的前缀，AstrBot 的 @filter.command 只认框架唤醒前缀（/ 等），
+# 两者不互通 —— 所以 `bq表情列表` 不会命中命令过滤器。这里做一层转发：
+# 剥掉插件前缀后若以命令名开头，直接调用对应 handler（按命令名长度降序匹配）。
+_CMD_ROUTES = tuple(
+    sorted(
+        (
+            ("表情帮助", "cmd_help"),
+            ("表情包帮助", "cmd_help"),
+            ("表情列表", "cmd_list"),
+            ("全部表情", "cmd_list"),
+            ("表情help", "cmd_list"),
+            ("表情搜索", "cmd_search"),
+            ("表情查找", "cmd_search"),
+            ("搜表情", "cmd_search"),
+            ("表情详情", "cmd_info"),
+            ("表情信息", "cmd_info"),
+            ("表情参数", "cmd_info"),
+            ("表情统计", "cmd_stats"),
+            ("表情排行", "cmd_stats"),
+            ("随机表情", "cmd_random"),
+            ("禁用表情", "cmd_disable"),
+            ("启用表情", "cmd_enable"),
+            ("全局禁用表情", "cmd_global_disable"),
+            ("全局启用表情", "cmd_global_enable"),
+            ("表情黑名单", "cmd_blacklist"),
+            ("禁用列表", "cmd_blacklist"),
+            ("屏蔽表情", "cmd_shield"),
+            ("解除屏蔽", "cmd_unshield"),
+            ("取消屏蔽", "cmd_unshield"),
+            ("开启表情包", "cmd_group_on"),
+            ("关闭表情包", "cmd_group_off"),
+            ("表情包状态", "cmd_group_status"),
+            ("更新表情", "cmd_refresh"),
+            ("刷新表情", "cmd_refresh"),
+            ("重载表情", "cmd_refresh"),
+        ),
+        key=lambda pair: -len(pair[0]),
+    )
+)
 
-@register(PLUGIN_NAME, "AwA", "表情包制作（轻量版）", "1.0.3")
+# 帮助图内容：(命令模板, 示例模板, 说明)。`<P>` 渲染前替换成真实前缀。
+_HELP_SECTIONS: List[Tuple[str, List[Tuple[str, str, str]]]] = [
+    (
+        "出图",
+        [
+            (
+                "<P><关键词> [文字/图/@QQ/自己]",
+                "<P>摸头 自己",
+                "关键词直接触发对应表情。`自己`=你的头像，`@123456`=指定 QQ 头像；"
+                "多图表情素材不够时会自动把你补到第一位。",
+            ),
+            (
+                "<P>随机表情 [文字/图/@]",
+                "<P>随机表情 摸头",
+                "在满足数量约束、未被禁用且未被屏蔽的表情里随机一个。",
+            ),
+        ],
+    ),
+    (
+        "查询",
+        [
+            (
+                "<P>表情列表",
+                "<P>表情列表",
+                "渲染全部表情总览图，分「可用 / 本会话禁用 / 全局禁用」三段。",
+            ),
+            (
+                "<P>表情搜索 <关键词>",
+                "<P>表情搜索 猫",
+                "在关键词与标签里模糊搜索。",
+            ),
+            (
+                "<P>表情详情 <关键词>",
+                "<P>表情详情 摸头",
+                "查看该表情的图片需求、文字需求、默认文字与可选参数。",
+            ),
+            (
+                "<P>表情统计 [条数]",
+                "<P>表情统计 10",
+                "今日调用排行，默认前 10 条。",
+            ),
+        ],
+    ),
+    (
+        "个人管理",
+        [
+            (
+                "<P>禁用表情 <关键词>",
+                "<P>禁用表情 摸头",
+                "只在本会话屏蔽你自己的触发，不影响别人。",
+            ),
+            (
+                "<P>启用表情 <关键词>",
+                "<P>启用表情 摸头",
+                "撤销你自己的禁用。",
+            ),
+            (
+                "<P>屏蔽表情 [关键词]",
+                "<P>屏蔽表情 摸头",
+                "别人 @你 时不能对你使用这些表情，自己用不受影响；不带参数看当前屏蔽列表。",
+            ),
+            (
+                "<P>解除屏蔽 <关键词>",
+                "<P>解除屏蔽 摸头",
+                "撤销个人屏蔽。",
+            ),
+        ],
+    ),
+    (
+        "本会话开关",
+        [
+            (
+                "<P>开启表情包",
+                "<P>开启表情包",
+                "恢复整个插件在本会话的全部指令。",
+            ),
+            (
+                "<P>关闭表情包",
+                "<P>关闭表情包",
+                "关闭后除「开启表情包 / 表情包状态」外全部忽略。",
+            ),
+            (
+                "<P>表情包状态",
+                "<P>表情包状态",
+                "查看开关状态、索引数量、个人禁用数量。",
+            ),
+        ],
+    ),
+]
+
+# 仅管理员可见
+_ADMIN_HELP_SECTIONS: List[Tuple[str, List[Tuple[str, str, str]]]] = [
+    (
+        "管理员",
+        [
+            (
+                "<P>全局禁用表情 <关键词>",
+                "<P>全局禁用表情 摸头",
+                "对所有人禁用该表情（白名单模式）。",
+            ),
+            (
+                "<P>全局启用表情 <关键词>",
+                "<P>全局启用表情 摸头",
+                "恢复所有人可用（黑名单模式）。",
+            ),
+            (
+                "<P>表情黑名单",
+                "<P>表情黑名单",
+                "查看当前被全局禁用的表情清单。",
+            ),
+            (
+                "<P>更新表情",
+                "<P>更新表情",
+                "重新探测后端并拉取全部表情索引。",
+            ),
+        ],
+    ),
+]
+
+
+def _help_sections(prefix: str, is_admin: bool) -> List[Tuple[str, List[Tuple[str, str, str]]]]:
+    """把模板里的 `<P>` 换成真实前缀，并按权限拼出分组。"""
+    rows = _HELP_SECTIONS + (_ADMIN_HELP_SECTIONS if is_admin else [])
+    return [
+        (
+            name,
+            [
+                (cmd.replace("<P>", prefix), eg.replace("<P>", prefix), desc)
+                for cmd, eg, desc in items
+            ],
+        )
+        for name, items in rows
+    ]
+
+
+@register(PLUGIN_NAME, "AwA", "表情包制作（轻量版）", "1.0.7")
 class MemeLitePlugin(Star):
     def __init__(self, context: Context, config) -> None:
         super().__init__(context)
@@ -156,7 +332,8 @@ class MemeLitePlugin(Star):
         return " ".join(text.split())
 
     @staticmethod
-    def _image_urls(event: AstrMessageEvent) -> List[str]:
+    def _own_image_urls(event: AstrMessageEvent) -> List[str]:
+        """当前这条消息自己带的图。"""
         urls: List[str] = []
         try:
             for seg in event.message_obj.message:
@@ -166,6 +343,41 @@ class MemeLitePlugin(Star):
                         urls.append(str(url))
         except Exception:  # noqa: BLE001
             pass
+        return urls
+
+    @staticmethod
+    def _has_reply(event: AstrMessageEvent) -> bool:
+        try:
+            return any(isinstance(seg, Reply) for seg in event.message_obj.message)
+        except Exception:  # noqa: BLE001
+            return False
+
+    @staticmethod
+    async def _quoted_image_urls(event: AstrMessageEvent) -> List[str]:
+        """引用消息里的图。
+
+        引用的图片**不在**当前消息的 Image 段里 —— AstrBot 的 aiocqhttp 适配器把被引用
+        消息整条塞进 ``Reply.chain``（拿不到时只留 ``Reply.id``），所以必须走框架自带的
+        ``extract_quoted_message_images``：它先看 chain，chain 里没有再用 get_msg 回捞。
+        不加这一步，引用图片发 `bq摸头` 会退化成拿发送者头像当素材。
+        """
+        if not MemeLitePlugin._has_reply(event):
+            return []
+        try:
+            from astrbot.core.utils.quoted_message import extract_quoted_message_images
+
+            refs = await extract_quoted_message_images(event)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[meme_lite] 取引用消息图片失败：{e}")
+            return []
+        return [str(r) for r in refs if r]
+
+    async def _image_urls(self, event: AstrMessageEvent) -> List[str]:
+        """素材图：自己的图在前，引用消息里的图在后（去重保序）。"""
+        urls = self._own_image_urls(event)
+        for url in await self._quoted_image_urls(event):
+            if url not in urls:
+                urls.append(url)
         return urls
 
     def _can_use(self, channel: str, key: str) -> Optional[str]:
@@ -239,9 +451,20 @@ class MemeLitePlugin(Star):
             sender_id=sender_id,
             sender_name=sender_name,
             at_ids=self._at_ids(event),
-            image_urls=self._image_urls(event),
+            image_urls=await self._image_urls(event),
             max_image_mb=float(self._cfg("max_image_size_mb", 5)),
         )
+
+        # 数量策略对齐 GsCore 的默认值（extra_text_policy / extra_image_policy = drop）：
+        # 多出来的素材直接裁掉，只有"不够"才报错。
+        # 必要性：单字关键词太容易把后面的字吃掉 —— `电死你` 命中的是关键词 `电`
+        # （zaoleipi），剩下「死你」会被当成台词，而该表情 max_texts=0；
+        # 不裁就会误判素材不符，GsCore 侧因为默认 drop 所以照样能出图。
+        if info.max_images >= 0 and len(parsed.images) > info.max_images:
+            parsed.images = parsed.images[: info.max_images]
+            parsed.at_names = parsed.at_names[: info.max_images]
+        if info.max_texts >= 0 and len(parsed.texts) > info.max_texts:
+            parsed.texts = parsed.texts[: info.max_texts]
 
         if not info.accepts(len(parsed.images), len(parsed.texts)):
             need_img = info.image_requirement_text()
@@ -315,6 +538,18 @@ class MemeLitePlugin(Star):
                 return
             has_prefix = True
 
+        # `bq表情列表` 这类：插件前缀 + 命令名 → 转给对应 handler
+        if has_prefix:
+            for cmd_name, handler_name in _CMD_ROUTES:
+                if raw.startswith(cmd_name):
+                    event.set_extra("meme_lite_done", True)
+                    # 换成剥掉前缀后的文本，让 handler 里的 split(maxsplit=1) 取参正确
+                    event.message_str = raw
+                    async for result in getattr(self, handler_name)(event):
+                        yield result
+                    event.stop_event()
+                    return
+
         if not self.client.is_ready:
             return
         if self._cooldown_hit(channel) and not has_prefix:
@@ -375,7 +610,7 @@ class MemeLitePlugin(Star):
 
         parsed_rest = (event.message_str or "").replace("随机表情", "", 1).strip()
         n_at = len(self._at_ids(event))
-        n_img = len(self._image_urls(event))
+        n_img = len(await self._image_urls(event))
 
         pool: List[MemeInfo] = []
         for info in self.client.all_infos():
@@ -406,32 +641,48 @@ class MemeLitePlugin(Star):
     # ------------------------------------------------------------------
     @filter.command("表情列表", alias={"表情help", "全部表情"})
     async def cmd_list(self, event: AstrMessageEvent):
-        """列出全部可用表情（分段显示）。"""
+        """列出全部可用表情（渲染成图，分段显示可用 / 本会话禁用 / 全局禁用）。"""
         if not self.client.is_ready:
             yield event.plain_result("表情索引还没就绪，先发一次 /更新表情")
             return
         channel = event.unified_msg_origin
-        infos = self.client.all_infos()
 
-        usable: List[str] = []
-        disabled_mine: List[str] = []
-        disabled_global: List[str] = []
-        for info in infos:
-            name = info.keywords[0] if info.keywords else info.key
-            if self.store.is_global_disabled(info.key):
-                disabled_global.append(name)
-            elif self.store.is_user_disabled(channel, info.key):
-                disabled_mine.append(name)
-            else:
-                usable.append(name)
+        items: List[Tuple[str, str, bool, bool]] = []
+        for info in self.client.all_infos():
+            keywords = "、".join(info.keywords) if info.keywords else info.key
+            gd = self.store.is_global_disabled(info.key)
+            ud = (not gd) and self.store.is_user_disabled(channel, info.key)
+            items.append((info.key, keywords, ud, gd))
 
+        prefix = str(self._cfg("trigger_prefix", "") or "")
+        subtitle = (
+            f"共 {len(items)} 个表情 ｜ 后端：{self.client.backend.upper()} ｜ "
+            f"用法：{prefix}关键词 + 图片/文字/@QQ号/自己"
+        )
+        try:
+            img = await asyncio.to_thread(
+                render_meme_list, items, title="表情列表", subtitle=subtitle
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[meme_lite] 渲染表情列表失败，退回文字：{e}")
+            yield event.plain_result(self._plain_list(items, prefix))
+            return
+
+        yield event.image_result(self._save_tmp(img))
+
+    @staticmethod
+    def _plain_list(items: List[Tuple[str, str, bool, bool]], prefix: str) -> str:
+        """渲染失败时的纯文字兜底（长列表截断，避免超长消息）。"""
+        usable = [k for k, _, ud, gd in items if not ud and not gd]
+        mine = [k for k, _, ud, gd in items if ud and not gd]
+        glob = [k for k, _, _, gd in items if gd]
         lines = [f"📋 可用表情（{len(usable)}）", "、".join(usable[:400])]
-        if disabled_mine:
-            lines.append(f"\n🚫 本会话禁用（{len(disabled_mine)}）：{'、'.join(disabled_mine[:80])}")
-        if disabled_global:
-            lines.append(f"\n⛔ 全局禁用（{len(disabled_global)}）：{'、'.join(disabled_global[:80])}")
-        lines.append("\n用法：直接发关键词，如「摸头」；搜关键词用 /表情搜索")
-        yield event.plain_result("\n".join(lines))
+        if mine:
+            lines.append(f"\n🚫 本会话禁用（{len(mine)}）：{'、'.join(mine[:80])}")
+        if glob:
+            lines.append(f"\n⛔ 全局禁用（{len(glob)}）：{'、'.join(glob[:80])}")
+        lines.append(f"\n用法：{prefix}关键词，如「{prefix}摸头」；搜关键词用 {prefix}表情搜索")
+        return "\n".join(lines)
 
     @filter.command("表情搜索", alias={"表情查找", "搜表情"})
     async def cmd_search(self, event: AstrMessageEvent):
@@ -657,17 +908,44 @@ class MemeLitePlugin(Star):
 
     @filter.command("表情帮助", alias={"表情包帮助"})
     async def cmd_help(self, event: AstrMessageEvent):
-        """查看用法。"""
-        yield event.plain_result(
+        """查看用法（渲染成帮助图，管理员多一栏全局命令）。"""
+        prefix = str(self._cfg("trigger_prefix", "") or "")
+        sections = _help_sections(prefix, self._require_admin(event))
+        subtitle = (
+            f"前缀 {prefix or '（无）'} ｜ 后端 {self.client.backend.upper()} ｜ "
+            f"表情 {len(self.client.all_infos())} 个"
+        )
+        footer = (
+            f"示例：{prefix}摸头 自己 ／ {prefix}表情详情 摸头 看单个表情的参数。"
+            f"关键词不做前缀时也支持自动触发（需 ≥2 字）。"
+        )
+        try:
+            img = await asyncio.to_thread(
+                render_command_help,
+                sections,
+                title="表情帮助",
+                subtitle=subtitle,
+                footer=footer,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[meme_lite] 渲染帮助图失败，退回文字：{e}")
+            yield event.plain_result(self._plain_help(prefix))
+            return
+
+        yield event.image_result(self._save_tmp(img))
+
+    @staticmethod
+    def _plain_help(prefix: str) -> str:
+        """渲染失败时的纯文字兜底。"""
+        p = prefix
+        return (
             "🎭 表情包制作（轻量版）\n"
-            "【出图】直接发关键词，如「摸头」/「摸头 你好」/「摸头 自己」/「摸头 @某人」\n"
-            "【随机】/随机表情 [自己|@某人]\n"
-            "【查询】/表情列表 ｜ /表情搜索 <词> ｜ /表情详情 <关键词>\n"
-            "【管理】/禁用表情 <词> ｜ /启用表情 <词>\n"
-            "        /全局禁用表情 <词> ｜ /全局启用表情 <词> ｜ /表情黑名单 （管理员）\n"
-            "【屏蔽】/屏蔽表情 <词> ｜ /解除屏蔽 <词>\n"
-            "【其它】/表情统计 [n] ｜ /开启表情包 ｜ /关闭表情包 ｜ /表情包状态\n"
-            "        /更新表情（管理员，刷新索引）"
+            f"【出图】{p}<关键词> [文字/图/@QQ/自己]\n"
+            f"【随机】{p}随机表情 [文字/图/@]\n"
+            f"【查询】{p}表情列表 ｜ {p}表情搜索 <词> ｜ {p}表情详情 <关键词> ｜ {p}表情统计 [条数]\n"
+            f"【个人】{p}禁用表情 <词> ｜ {p}启用表情 <词> ｜ {p}屏蔽表情 <词> ｜ {p}解除屏蔽 <词>\n"
+            f"【本群】{p}开启表情包 ｜ {p}关闭表情包 ｜ {p}表情包状态\n"
+            f"【管理】{p}全局禁用表情 <词> ｜ {p}全局启用表情 <词> ｜ {p}表情黑名单 ｜ {p}更新表情（管理员）"
         )
 
     # ------------------------------------------------------------------

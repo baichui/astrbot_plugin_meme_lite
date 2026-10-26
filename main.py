@@ -482,9 +482,14 @@ class MemeLitePlugin(Star):
         show_info: bool = False,
     ) -> Tuple[Optional[str], Optional[str]]:
         """返回 (图片路径, 提示文本)。"""
-        # 插件级黑白名单：唯一出图口子，统一在此拦截（自动触发时静默，主动调用回提示）
+        # 插件级黑白名单：唯一出图口子，统一在此静默拦截（不回复任何文案）
         if self._permission_denied(event):
-            return None, "本会话未开放表情包功能"
+            logger.debug(
+                "[meme_lite] 权限拒绝，静默丢弃：sender=%s group=%s",
+                event.get_sender_id(),
+                event.get_group_id(),
+            )
+            return None, None
         channel = event.unified_msg_origin
         # @ 的人由 At 段单独取头像，文本里的 "@昵称(QQ)" 不能当台词（见 _strip_mentions）
         rest_text = self._strip_mentions(rest_text, event)
@@ -676,7 +681,9 @@ class MemeLitePlugin(Star):
         info = random.choice(pool)
         path, note = await self._generate(event, info, parsed_rest, show_info=True)
         if not path:
-            yield event.plain_result(note or "生成失败")
+            # note 为 None = 黑白名单静默拦截，什么都不回；其余失败照常提示
+            if note:
+                yield event.plain_result(note)
             return
         if note:
             yield event.plain_result(note)

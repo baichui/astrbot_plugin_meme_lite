@@ -245,7 +245,7 @@ class MemeLitePlugin(Star):
         self.tmp_dir.mkdir(parents=True, exist_ok=True)
 
         self.client = MemeClient(
-            base_url=str(self._cfg("api_url", "https://meme.xlinxc.cn")),
+            base_url=str(self._cfg("api_url", "")),
             timeout=float(self._cfg("request_timeout", 60)),
             cache_path=data_dir / "meme_index.json",
             cache_hours=float(self._cfg("index_cache_hours", 24)),

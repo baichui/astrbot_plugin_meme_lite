@@ -8,8 +8,8 @@
   "api_url": {
     "description": "meme-generator 后端地址",
     "type": "string",
-    "default": "https://meme.xlinxc.cn",
-    "hint": "填 GsCore 侧 MemeApiUrl 的同一个地址即可共用后端"
+    "default": "",
+    "hint": "必填：你自己部署的 meme-generator 后端根地址，例如 http://127.0.0.1:2233。留空则插件无法出图"
   },
   "request_timeout": {
     "description": "后端请求超时（秒）",

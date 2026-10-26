@@ -52,5 +52,74 @@
     "type": "bool",
     "default": true,
     "hint": "关闭后 /表情统计 没有数据"
+  },
+  "permissions": {
+    "description": "黑白名单",
+    "type": "object",
+    "hint": "优先级：管理员 > 个人白名单 > 个人黑名单 > 群组白名单 > 群组黑名单；白名单启用但未填名单 = 只允许管理员。名单只限制表情生成（关键词自动触发、前缀生图、随机表情），帮助/列表/统计/管理命令不受限。每项填一个 ID。",
+    "items": {
+      "admin_id": {
+        "description": "管理员 ID",
+        "type": "string",
+        "hint": "最高权限，白名单限制对管理员豁免。",
+        "default": ""
+      },
+      "whitelist": {
+        "description": "白名单",
+        "type": "object",
+        "hint": "启用后只有名单内用户/群组（及管理员）能出图；用户和群组字段每项填写一个 ID。",
+        "items": {
+          "enable": {
+            "description": "启用",
+            "type": "bool",
+            "default": false
+          },
+          "user": {
+            "description": "用户",
+            "type": "list",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "group": {
+            "description": "群组",
+            "type": "list",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          }
+        }
+      },
+      "blacklist": {
+        "description": "黑名单",
+        "type": "object",
+        "hint": "启用后名单内用户/群组禁止出图，其余不受影响。",
+        "items": {
+          "enable": {
+            "description": "启用",
+            "type": "bool",
+            "default": false
+          },
+          "user": {
+            "description": "用户",
+            "type": "list",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "group": {
+            "description": "群组",
+            "type": "list",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          }
+        }
+      }
+    }
   }
 }

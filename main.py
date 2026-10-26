@@ -269,6 +269,49 @@ class MemeLitePlugin(Star):
     def enabled(self) -> bool:
         return bool(self._cfg("enable", True))
 
+    # ------------------------------------------------------------------
+    # 插件级黑白名单（语义对齐 astrbot_plugin_media_parser）
+    # 优先级：管理员 > 个人白名单 > 个人黑名单 > 群组白名单 > 群组黑名单；
+    # 未命中任何规则时：白名单启用=拒绝，未启用=允许。
+    # 名单只限制表情生成，帮助/列表/统计/管理命令不受限。
+    # ------------------------------------------------------------------
+    def _permission_denied(self, event: AstrMessageEvent) -> bool:
+        perm = self._cfg("permissions")
+        if not isinstance(perm, dict):
+            return False
+        admin_id = str(perm.get("admin_id") or "").strip()
+        sender_id = str(event.get_sender_id() or "").strip()
+        if admin_id and sender_id == admin_id:
+            return False
+
+        group_id = str(event.get_group_id() or "").strip()
+        is_private = not group_id or group_id == "0"
+
+        def _ids(section: Any, key: str) -> list:
+            if not isinstance(section, dict):
+                return []
+            vals = section.get(key) or []
+            if not isinstance(vals, (list, tuple)):
+                return []
+            return [str(v).strip() for v in vals]
+
+        wl = perm.get("whitelist") if isinstance(perm.get("whitelist"), dict) else {}
+        bl = perm.get("blacklist") if isinstance(perm.get("blacklist"), dict) else {}
+
+        allowed = None
+        if wl and wl.get("enable") and sender_id in _ids(wl, "user"):
+            allowed = True
+        elif bl and bl.get("enable") and sender_id in _ids(bl, "user"):
+            allowed = False
+        elif not is_private and wl and wl.get("enable") and group_id in _ids(wl, "group"):
+            allowed = True
+        elif not is_private and bl and bl.get("enable") and group_id in _ids(bl, "group"):
+            allowed = False
+
+        if allowed is None:
+            allowed = not bool(wl and wl.get("enable"))
+        return not allowed
+
     def _clean_tmp(self) -> None:
         """清理超过 30 分钟的临时图片。"""
         try:
@@ -439,6 +482,9 @@ class MemeLitePlugin(Star):
         show_info: bool = False,
     ) -> Tuple[Optional[str], Optional[str]]:
         """返回 (图片路径, 提示文本)。"""
+        # 插件级黑白名单：唯一出图口子，统一在此拦截（自动触发时静默，主动调用回提示）
+        if self._permission_denied(event):
+            return None, "本会话未开放表情包功能"
         channel = event.unified_msg_origin
         # @ 的人由 At 段单独取头像，文本里的 "@昵称(QQ)" 不能当台词（见 _strip_mentions）
         rest_text = self._strip_mentions(rest_text, event)

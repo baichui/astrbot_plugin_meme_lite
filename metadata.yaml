@@ -2,7 +2,7 @@ name: astrbot_plugin_meme_lite
 display_name: 表情包制作（轻量版）
 desc: 直连 meme-generator 后端（复用 GsCore 侧同一个服务）。支持关键词出图、随机表情、搜索/详情、帮助图与表情总览图、个人与全局禁用、黑名单屏蔽、调用统计、分群开关。｜后端能力来自 MemeCrafters/meme-generator（MIT）；功能设计与命令体系参考 Loping151/core_plugin_memes（GPL-3.0-or-later）
 help: 输入 /表情帮助 查看用法（渲染成图）
-version: v1.0.7
+version: v1.0.8
 author: AwA
 repo: ""
 astrbot_version: ">=4.13.0"

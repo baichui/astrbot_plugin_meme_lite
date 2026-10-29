@@ -254,17 +254,17 @@ pokepro（专业戳一戳）的「**命令**」响应位可以填 `随机表情`
 `api_url` 只填**根地址**，不要带 `/v1`、`/api` 之类路径前缀，也不要带结尾斜杠：
 
 ```
-✅ https://meme.xlinxc.cn
-❌ https://meme.xlinxc.cn/v1
-❌ https://meme.xlinxc.cn/memes
+✅ https://你的后端地址
+❌ https://你的后端地址/v1
+❌ https://你的后端地址/memes
 ```
 
 顺带一提，后端根路径 `/` 返回 `{"detail":"Not Found"}` 是**正常的**（服务端没定义根路由），
 要验证请访问完整路径：
 
 ```
-https://meme.xlinxc.cn/memes/keys     # Python 版后端
-https://meme.xlinxc.cn/meme/keys      # Rust 版后端
+https://你的后端地址/memes/keys     # Python 版后端
+https://你的后端地址/meme/keys      # Rust 版后端
 ```
 
 ### 手机端 / 容器内「无法连接后端」怎么排查

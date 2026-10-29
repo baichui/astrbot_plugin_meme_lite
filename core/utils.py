@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-import httpx
 from astrbot.api import logger
+
+from .client import new_client
 
 _AVATAR_URL = "https://q1.qlogo.cn/g?b=qq&nk={uid}&s={size}"
 # 先要 640；动图（GIF）头像在 640 档 qlogo 会退化成 40×40 的默认企鹅占位图，
@@ -41,7 +42,7 @@ async def fetch_qq_avatar(uid: str) -> Optional[bytes]:
         return None
     fallback: Optional[bytes] = None
     try:
-        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT, follow_redirects=True) as client:
+        async with new_client(_DEFAULT_TIMEOUT, follow_redirects=True) as client:
             for size in _AVATAR_SIZES:
                 resp = await client.get(_AVATAR_URL.format(uid=uid, size=size))
                 if resp.status_code != 200 or not resp.content:
@@ -106,7 +107,7 @@ async def fetch_image(url: str) -> Optional[bytes]:
         logger.warning(f"[meme_lite] 无法识别的图片来源（既不是链接也不是本地文件）：{url[:80]}")
         return None
     try:
-        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT, follow_redirects=True) as client:
+        async with new_client(_DEFAULT_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(url)
         if resp.status_code == 200 and resp.content:
             return resp.content

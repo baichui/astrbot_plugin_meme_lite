@@ -35,6 +35,21 @@ class MemeClientError(Exception):
         self.message = message
 
 
+def new_client(timeout: float, **kwargs: Any) -> httpx.AsyncClient:
+    """创建强制走 IPv4 的 httpx 客户端。
+
+    手机端（尤其安卓一体包）默认会优先解析到 Cloudflare 的 IPv6 记录，
+    而 httpx 不像浏览器那样在 IPv6 不通时快速回退 IPv4，往往一路超时，
+    最后只表现为「无法连接后端」。绑定本地 0.0.0.0 可强制 IPv4 出站。
+    若当前环境不支持该绑定参数，则退回普通客户端，不影响可用性。
+    """
+    try:
+        transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
+        return httpx.AsyncClient(timeout=timeout, transport=transport, **kwargs)
+    except Exception:  # noqa: BLE001
+        return httpx.AsyncClient(timeout=timeout, **kwargs)
+
+
 class MemeClient:
     """表情后端的统一封装。"""
 
@@ -74,7 +89,11 @@ class MemeClient:
         if self._backend and not force:
             return self._backend
 
-        async with httpx.AsyncClient(timeout=10) as client:
+        if not self.base_url:
+            raise MemeClientError("未配置后端地址（api_url）")
+
+        reasons: List[str] = []
+        async with new_client(10) as client:
             for backend, path in ((_BACKEND_PY, "/memes/keys"), (_BACKEND_RS, "/meme/keys")):
                 try:
                     resp = await client.get(self._url(path))
@@ -82,10 +101,14 @@ class MemeClient:
                         self._backend = backend
                         logger.info(f"[meme_lite] 后端探测：{backend} 版")
                         return backend
+                    reasons.append(f"{path} 返回 HTTP {resp.status_code}")
                 except Exception as e:  # noqa: BLE001
+                    reasons.append(f"{path} 连接失败（{type(e).__name__}: {e}）")
                     logger.debug(f"[meme_lite] {path} 探测失败：{e}")
 
-        raise MemeClientError("无法连接 meme 后端，请检查 api_url 配置")
+        raise MemeClientError(
+            f"无法连接 meme 后端（{self.base_url}）：" + "；".join(reasons)
+        )
 
     @property
     def is_ready(self) -> bool:
@@ -108,7 +131,7 @@ class MemeClient:
             return self._keys
         backend = await self.detect_backend()
         path = "/memes/keys" if backend == _BACKEND_PY else "/meme/keys"
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with new_client(self.timeout) as client:
             resp = await client.get(self._url(path))
         self._raise_for_error(resp)
         keys = resp.json()
@@ -122,7 +145,7 @@ class MemeClient:
             return self._info[key]
         backend = await self.detect_backend()
         path = f"/memes/{key}/info" if backend == _BACKEND_PY else f"/meme/{key}/info"
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with new_client(self.timeout) as client:
             resp = await client.get(self._url(path))
         self._raise_for_error(resp)
         raw = resp.json()
@@ -169,7 +192,7 @@ class MemeClient:
 
             if backend == _BACKEND_RS:
                 try:
-                    async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    async with new_client(self.timeout) as client:
                         resp = await client.get(self._url("/meme/infos"))
                     self._raise_for_error(resp)
                     raw_list = resp.json()
@@ -192,8 +215,8 @@ class MemeClient:
             ok = 0
             fail = 0
 
-            async with httpx.AsyncClient(
-                timeout=self.timeout,
+            async with new_client(
+                self.timeout,
                 limits=httpx.Limits(max_keepalive_connections=32, max_connections=64),
             ) as client:
 
@@ -281,7 +304,7 @@ class MemeClient:
     ) -> bytes:
         """调用后端生成表情，返回图片字节。"""
         backend = await self.detect_backend()
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with new_client(self.timeout) as client:
             if backend == _BACKEND_PY:
                 args: Dict[str, Any] = dict(options or {})
                 if user_infos is not None:

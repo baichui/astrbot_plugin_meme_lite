@@ -4,7 +4,7 @@ desc: 直连 meme-generator 后端（复用 GsCore 侧同一个服务）。支�
 help: 输入 /表情帮助 查看用法（渲染成图）
 version: v1.0.11
 author: AwA
-repo: ""
+repo: https://github.com/baichui/astrbot_plugin_meme_lite
 astrbot_version: ">=4.13.0"
 support_platforms:
   - aiocqhttp

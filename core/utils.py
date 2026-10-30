@@ -8,7 +8,8 @@ from astrbot.api import logger
 
 from .client import new_client
 
-_AVATAR_URL = "https://q1.qlogo.cn/g?b=qq&nk={uid}&s={size}"
+# qlogo 有 q1–q4 四个节点；单节点 DNS/网络抽风时轮换重试，别一棍子打死
+_AVATAR_HOSTS = ("q1.qlogo.cn", "q2.qlogo.cn", "q3.qlogo.cn", "q4.qlogo.cn")
 # 先要 640；动图（GIF）头像在 640 档 qlogo 会退化成 40×40 的默认企鹅占位图，
 # 这时降到 140 —— 动图账号只在这个档位才返回真实的 100×100 小动图。
 _AVATAR_SIZES = (640, 140)
@@ -36,23 +37,30 @@ def _is_placeholder(data: bytes, want: int) -> bool:
 
 
 async def fetch_qq_avatar(uid: str) -> Optional[bytes]:
-    """取 QQ 头像字节（自动跳过动图头像的 40×40 占位图）。"""
+    """取 QQ 头像字节（q1–q4 节点轮换；自动跳过动图头像的 40×40 占位图）。"""
     uid = str(uid).strip()
     if not uid.isdigit():
         return None
     fallback: Optional[bytes] = None
-    try:
-        async with new_client(_DEFAULT_TIMEOUT, follow_redirects=True) as client:
-            for size in _AVATAR_SIZES:
-                resp = await client.get(_AVATAR_URL.format(uid=uid, size=size))
-                if resp.status_code != 200 or not resp.content:
-                    continue
-                if not _is_placeholder(resp.content, size):
-                    return resp.content
-                if fallback is None:
-                    fallback = resp.content
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[meme_lite] 取头像失败 uid={uid}: {e}")
+    last_err: Optional[str] = None
+    for host in _AVATAR_HOSTS:
+        url = f"https://{host}/g?b=qq&nk={{uid}}&s={{size}}"
+        try:
+            async with new_client(_DEFAULT_TIMEOUT, follow_redirects=True) as client:
+                for size in _AVATAR_SIZES:
+                    resp = await client.get(url.format(uid=uid, size=size))
+                    if resp.status_code != 200 or not resp.content:
+                        continue
+                    if not _is_placeholder(resp.content, size):
+                        return resp.content
+                    if fallback is None:
+                        fallback = resp.content
+            break  # 该节点全档位成功（含占位图），不再换节点
+        except Exception as e:  # noqa: BLE001
+            last_err = f"{type(e).__name__}: {e}"
+            logger.warning(f"[meme_lite] 取头像失败 {host} uid={uid}: {e}")
+    if last_err and fallback is None:
+        logger.warning(f"[meme_lite] 取头像最终失败 uid={uid}（所有节点均不可达）")
     return fallback
 
 

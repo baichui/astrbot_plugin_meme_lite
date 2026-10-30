@@ -524,6 +524,9 @@ class MemeLitePlugin(Star):
                 f"「{info.key}」需要图片 {need_img} 张、文字 {need_txt} 段，"
                 f"当前收到 {len(parsed.images)} 张图 / {len(parsed.texts)} 段文字"
             )
+            # 素材收集期间的失败说明（头像下载失败等）直接透出，别让用户猜
+            if parsed.notes:
+                msg += "\n⚠️ " + "；".join(parsed.notes)
             # 多图表情（2 人及以上）常见于"揍/击剑/双喜"这类，给一句怎么补人的提示
             if info.min_images >= 2 and len(parsed.images) < info.min_images:
                 kw = info.keywords[0] if info.keywords else info.key

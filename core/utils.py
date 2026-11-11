@@ -36,11 +36,46 @@ def _is_placeholder(data: bytes, want: int) -> bool:
         return len(data) < 2048
 
 
-async def fetch_qq_avatar(uid: str) -> Optional[bytes]:
-    """取 QQ 头像字节（q1–q4 节点轮换；自动跳过动图头像的 40×40 占位图）。"""
+async def fetch_qq_avatar(uid: str, appid: Optional[str] = None) -> Optional[bytes]:
+    """取 QQ 头像字节。
+
+    - QQ 号（纯数字）：q1–q4 节点轮换，自动跳过动图头像的 40×40 占位图；
+    - 非 QQ 号（QQ 官方机器人的 openid）：走 ``q.qlogo.cn/qqapp/{appid}/{openid}/``
+      专用接口，需要传入 appid；没有 appid 就取不到，返回 None。
+    """
     uid = str(uid).strip()
-    if not uid.isdigit():
+    if uid.isdigit():
+        return await _fetch_qlogo_avatar(uid)
+    if appid:
+        return await _fetch_official_avatar(uid, str(appid).strip())
+    return None
+
+
+def resolve_official_appid(platform_id: str = "") -> Optional[str]:
+    """从 AstrBot 全局配置里找 QQ 官方机器人的 appid。
+
+    优先匹配 ``platform_id``（平台实例 id），找不到就退回第一个
+    ``type == "qq_official"`` 且填了 appid 的实例。
+    """
+    try:
+        from astrbot.core import astrbot_config
+    except Exception:  # noqa: BLE001
         return None
+    fallback: Optional[str] = None
+    for p in astrbot_config.get("platform") or []:
+        if not isinstance(p, dict) or p.get("type") != "qq_official":
+            continue
+        appid = str(p.get("appid") or "").strip()
+        if not appid:
+            continue
+        if platform_id and p.get("id") == platform_id:
+            return appid
+        if fallback is None:
+            fallback = appid
+    return fallback
+
+
+async def _fetch_qlogo_avatar(uid: str) -> Optional[bytes]:
     fallback: Optional[bytes] = None
     last_err: Optional[str] = None
     for host in _AVATAR_HOSTS:
@@ -159,3 +194,31 @@ def compress_if_needed(data: bytes, max_mb: float = 5.0) -> bytes:
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[meme_lite] 图片压缩失败，透传原图：{e}")
         return data
+
+
+# 官方机器人 openid 头像只有两档可用：640（原图）与 100
+_OFFICIAL_AVATAR_SIZES = (640, 100)
+
+
+async def _fetch_official_avatar(openid: str, appid: str) -> Optional[bytes]:
+    """取 QQ 官方机器人用户的头像。
+
+    接口：``https://q.qlogo.cn/qqapp/{appid}/{openid}/{size}``，
+    size 可用 640 / 100（实测 140 档不可用）。openid 不经校验的话
+    qlogo 对不存在的组合返回 404 / 空，直接按失败处理。
+    """
+    last_err: Optional[str] = None
+    for size in _OFFICIAL_AVATAR_SIZES:
+        url = f"https://q.qlogo.cn/qqapp/{appid}/{openid}/{size}"
+        try:
+            async with new_client(_DEFAULT_TIMEOUT, follow_redirects=True) as client:
+                resp = await client.get(url)
+                if resp.status_code == 200 and resp.content:
+                    return resp.content
+                last_err = f"HTTP {resp.status_code}"
+        except Exception as e:  # noqa: BLE001
+            last_err = f"{type(e).__name__}: {e}"
+            logger.warning(f"[meme_lite] 取官方头像失败 appid={appid} openid={openid[:8]}…: {e}")
+    if last_err:
+        logger.warning(f"[meme_lite] 取官方头像最终失败 openid={openid[:8]}…: {last_err}")
+    return None

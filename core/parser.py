@@ -86,11 +86,14 @@ async def collect_materials(
     at_ids: List[str],
     image_urls: List[str],
     max_image_mb: float = 5.0,
+    official_appid: Optional[str] = None,
 ) -> ParseResult:
     """按表情需求收集素材。
 
     - 图片：消息自带图 + `@某人` + `自己`
     - 文字：剩余文本；若表情只需 1 段文字，则整段保留
+    - ``official_appid``：QQ 官方机器人平台的 appid。官方平台下
+      sender/at 都是 openid（非纯数字），取头像必须带 appid。
     """
     result = ParseResult()
 
@@ -117,7 +120,7 @@ async def collect_materials(
             keep_tokens.append(tok)
 
     if need_self:
-        avatar = await fetch_qq_avatar(sender_id)
+        avatar = await fetch_qq_avatar(sender_id, official_appid)
         if avatar:
             result.images.append((sender_name or sender_id, compress_if_needed(avatar, max_image_mb)))
             result.at_names.append(sender_name or sender_id)
@@ -126,11 +129,11 @@ async def collect_materials(
 
     for uid in at_ids:
         uid = str(uid)
-        if not uid.isdigit():
+        if not uid.isdigit() and not official_appid:
             continue
         if uid == str(sender_id) and need_self:
             continue
-        avatar = await fetch_qq_avatar(uid)
+        avatar = await fetch_qq_avatar(uid, official_appid)
         if avatar:
             result.images.append((uid, compress_if_needed(avatar, max_image_mb)))
             result.at_names.append(uid)
@@ -149,7 +152,7 @@ async def collect_materials(
     #    例：`揍 @张三` → [我, 张三] = 我揍他；`3p @a @b` → [我, a, b]。
     #    实测 beat_up 的 image[0] 是施动方（站着打人的），image[1] 是被打方。
     if info.min_images >= 1 and len(result.images) < info.min_images and not need_self:
-        avatar = await fetch_qq_avatar(sender_id)
+        avatar = await fetch_qq_avatar(sender_id, official_appid)
         if avatar:
             name = sender_name or sender_id
             result.images.insert(0, (name, compress_if_needed(avatar, max_image_mb)))

@@ -37,6 +37,7 @@ from .core.models import MemeInfo
 from .core.parser import collect_materials
 from .core.render import render_command_help, render_meme_list
 from .core.store import MemeStore
+from .core.utils import resolve_official_appid
 
 PLUGIN_NAME = "astrbot_plugin_meme_lite"
 
@@ -496,6 +497,11 @@ class MemeLitePlugin(Star):
         sender_id = str(event.get_sender_id())
         sender_name = event.get_sender_name() or sender_id
 
+        # QQ 官方机器人平台的用户标识是 openid（非纯数字），取头像要带 appid
+        official_appid = None
+        if event.get_platform_name() == "qq_official":
+            official_appid = resolve_official_appid(event.get_platform_id())
+
         parsed = await collect_materials(
             info,
             rest_text,
@@ -504,6 +510,7 @@ class MemeLitePlugin(Star):
             at_ids=self._at_ids(event),
             image_urls=await self._image_urls(event),
             max_image_mb=float(self._cfg("max_image_size_mb", 5)),
+            official_appid=official_appid,
         )
 
         # 数量策略对齐 GsCore 的默认值（extra_text_policy / extra_image_policy = drop）：

@@ -58,6 +58,10 @@ _RESERVED = (
 #   - 要求 1 段文字的表情会把 "@张三(123456)" 当成台词念出来
 _MENTION_RE = re.compile(r"@[^\s@()]*\(\d+\)")
 
+# QQ 官方机器人（qq_official）的 @ 在原始文本里是 `<@!openid>` / `<@openid>` 这种占位符，
+# 上面那条只认 `@昵称(QQ号)` 的正则清不掉，得单独剥。
+_OFFICIAL_MENTION_RE = re.compile(r"<@!?[^>\s]+>")
+
 # `bq` 是插件自己的前缀，AstrBot 的 @filter.command 只认框架唤醒前缀（/ 等），
 # 两者不互通 —— 所以 `bq表情列表` 不会命中命令过滤器。这里做一层转发：
 # 剥掉插件前缀后若以命令名开头，直接调用对应 handler（按命令名长度降序匹配）。
@@ -337,6 +341,37 @@ class MemeLitePlugin(Star):
         return str(path)
 
     @staticmethod
+    def _official_mention_ids(event: AstrMessageEvent) -> List[str]:
+        """从 QQ 官方机器人的原始消息里取被 @ 的人（openid）。
+
+        官机适配器**只把「@机器人自己」转成 At 段**，@别人根本不进消息链：
+        ``qqofficial_platform_adapter.py`` 里 ``bot_mentions`` 只筛 ``is_you is True`` 的
+        mention，其余 mention 既不建 At 段、也不从 message_str 里剔除。
+        结果就是本插件的 ``_at_ids`` 恒为空 → 头像退回发送者。所以这里直接读
+        ``raw_message.mentions``（botpy 的 _User，字段 id / member_openid / is_you / avatar）。
+        """
+        ids: List[str] = []
+        try:
+            raw = getattr(event.message_obj, "raw_message", None)
+            mentions = getattr(raw, "mentions", None) or []
+        except Exception:  # noqa: BLE001
+            return ids
+        for mention in mentions:
+            try:
+                if getattr(mention, "is_you", False):
+                    continue
+                uid = (
+                    getattr(mention, "id", None)
+                    or getattr(mention, "member_openid", None)
+                    or getattr(mention, "user_openid", None)
+                )
+                if uid:
+                    ids.append(str(uid))
+            except Exception:  # noqa: BLE001
+                continue
+        return ids
+
+    @staticmethod
     def _at_ids(event: AstrMessageEvent) -> List[str]:
         ids: List[str] = []
         try:
@@ -346,6 +381,10 @@ class MemeLitePlugin(Star):
             for seg in event.message_obj.message:
                 if isinstance(seg, At) and str(seg.qq) not in ("all", self_id):
                     ids.append(str(seg.qq))
+            # 官机不会有其他人的 At 段，得从原始 mentions 补
+            for uid in MemeLitePlugin._official_mention_ids(event):
+                if uid not in ("all", self_id) and uid not in ids:
+                    ids.append(uid)
         except Exception:  # noqa: BLE001
             pass
         return ids
@@ -373,6 +412,8 @@ class MemeLitePlugin(Star):
                 text = text.replace(tok, " ")
         # 兜底：段里昵称与文本里的写法不一致（含全角括号等）时按模式清
         text = _MENTION_RE.sub(" ", text)
+        # 官机的 `<@!openid>` 占位符：不剥会被当成台词画进图里
+        text = _OFFICIAL_MENTION_RE.sub(" ", text)
         return " ".join(text.split())
 
     @staticmethod

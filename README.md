@@ -279,7 +279,7 @@ v1.0.11 起，报错会带上真实原因，例如：
 的 IPv6 出不去**（浏览器会自动回退 IPv4，Python 的 httpx 不会）。
 v1.0.11 已改为**强制 IPv4 出站**，这类环境无需额外配置。
 
-## 🤖 QQ 官方机器人支持（v1.0.13）
+## 🤖 QQ 官方机器人支持（v1.0.13 / v1.0.14）
 
 QQ 官方机器人（平台类型 `qq_official`）下，用户的标识不是 QQ 号而是 **openid**
 （形如 `3EB0B07FDF73EB4787329AC8C2F0F55F` 的十六进制串），传统 qlogo 头像接口对其无效。
@@ -290,5 +290,17 @@ QQ 官方机器人（平台类型 `qq_official`）下，用户的标识不是 QQ
   `https://q.qlogo.cn/qqapp/{appid}/{openid}/640` 专用接口；
 - **appid 自动从 AstrBot 全局配置读取**（匹配平台实例 id），无需手动填写；
 - `@某人`、`自己`、自动补发送者头像在官方平台下同样生效。
+
+**v1.0.14 修复：官机 `@别人` 仍然取发送者头像**
+
+根因在 AstrBot 的官机适配器：`qqofficial_platform_adapter.py` 构造消息链时，
+`bot_mentions` 只筛选 `is_you is True` 的 mention —— 也就是说**只有「@机器人自己」会被转成
+`At` 段，@别人既不建 At 段、也没从 `message_str` 里剔除**。本插件原先只从 At 段取被 @ 的
+人，官机下这个列表恒为空，于是按「素材不足」的逻辑回落到发送者头像。
+
+修复方式：官机下额外读 `event.message_obj.raw_message.mentions`
+（botpy 的 `_User`，字段 `id` / `member_openid` / `is_you`），跳过 `is_you=True`
+的那条，把其余 openid 并入 `at_ids`；同时把文本里残留的 `<@!openid>` 占位符剥掉，
+避免它被当成台词画进图里。NapCat（aiocqhttp）走 At 段的老逻辑不受影响。
 
 无需任何配置，插件加载后即生效。
